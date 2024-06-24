@@ -1,8 +1,36 @@
 name: SGSI_Build
 
 on:
-  watch:
-    types: [started]
+  workflow_dispatch:
+    inputs:
+      rom_url_1:
+        description: 'First firmware URL'
+        required: true
+        type: string
+      rom_url_2:
+        description: 'Second firmware URL'
+        required: true
+        type: string
+      build_type:
+        description: 'Build type'
+        required: true
+        type: string
+      os_type:
+        description: 'OS type'
+        required: true
+        type: string
+      zip_name:
+        description: 'Zip name'
+        required: true
+        type: string
+      version:
+        description: 'Version'
+        required: true
+        type: string
+      repack_name:
+        description: 'Repack name'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -12,22 +40,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Load Configuration
-        uses: falti/dotenv-action@v0.2.5
-        id: config
-        with:
-          path: config.env
-
       - name: Check Configuration
         run: |
           function required () { if ! [[ "$1" ]]; then echo "$2 variable can't be null." && exit 1; fi }
-          required "${{ steps.config.outputs.rom_url_1 }}" "ROM_URL_1 config"
-          required "${{ steps.config.outputs.rom_url_2 }}" "ROM_URL_2 config"
-          required "${{ steps.config.outputs.build_type }}" "BUILD_TYPE config"
-          required "${{ steps.config.outputs.os_type }}" "OS_TYPE config"
-          required "${{ steps.config.outputs.zip_name }}" "ZIP_NAME config"
-          required "${{ steps.config.outputs.version }}" "VERSION config"
-          required "${{ steps.config.outputs.repack_name }}" "REPACK_NAME config"
+          required "${{ github.event.inputs.rom_url_1 }}" "ROM_URL_1 config"
+          required "${{ github.event.inputs.rom_url_2 }}" "ROM_URL_2 config"
+          required "${{ github.event.inputs.build_type }}" "BUILD_TYPE config"
+          required "${{ github.event.inputs.os_type }}" "OS_TYPE config"
+          required "${{ github.event.inputs.zip_name }}" "ZIP_NAME config"
+          required "${{ github.event.inputs.version }}" "VERSION config"
+          required "${{ github.event.inputs.repack_name }}" "REPACK_NAME config"
 
       - name: Cleanup workspace
         run: |
@@ -54,22 +76,22 @@ jobs:
 
       - name: Build SGSI from URL 1
         run: |
-          sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/url2SGSI.sh "${{ steps.config.outputs.rom_url_1 }}" "${{ steps.config.outputs.os_type }}" "${{ steps.config.outputs.build_type }}"
+          sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/url2SGSI.sh "${{ github.event.inputs.rom_url_1 }}" "${{ github.event.inputs.os_type }}" "${{ github.event.inputs.build_type }}"
 
       - name: Build SGSI from URL 2
         run: |
-          sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/url2SGSI.sh "${{ steps.config.outputs.rom_url_2 }}" "${{ steps.config.outputs.os_type }}" "${{ steps.config.outputs.build_type }}"
+          sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/url2SGSI.sh "${{ github.event.inputs.rom_url_2 }}" "${{ github.event.inputs.os_type }}" "${{ github.event.inputs.build_type }}"
 
       - name: Repack Output File
         run: |
           cd $GITHUB_WORKSPACE/SGSI-build-tool
           mkdir -p upload
-          zip -r "${{ steps.config.outputs.repack_name }}" ./SGSI/*
-          if [[ $(du -sb "${{ steps.config.outputs.repack_name }}" | awk '{print $1}') -gt 2097152000 ]]; then
+          zip -r "${{ github.event.inputs.repack_name }}" ./SGSI/*
+          if [[ $(du -sb "${{ github.event.inputs.repack_name }}" | awk '{print $1}') -gt 2097152000 ]]; then
             echo -e "split packaging..."
-            tar -cpzf - "${{ steps.config.outputs.repack_name }}" | split -d -b 1024m - "upload/${{ steps.config.outputs.repack_name }}"
+            tar -cpzf - "${{ github.event.inputs.repack_name }}" | split -d -b 1024m - "upload/${{ github.event.inputs.repack_name }}"
           else
-            mv "${{ steps.config.outputs.repack_name }}" "upload/${{ steps.config.outputs.repack_name }}"
+            mv "${{ github.event.inputs.repack_name }}" "upload/${{ github.event.inputs.repack_name }}"
           fi
           ls "upload"
 
@@ -77,7 +99,7 @@ jobs:
         uses: ncipollo/release-action@v1.8.6
         with:
           artifacts: ${{ github.workspace }}/SGSI-build-tool/upload/*
-          name: "${{ steps.config.outputs.os_type }}${{ steps.config.outputs.build_type }}-Android${{ steps.config.outputs.version }}-unpack"
-          tag: "${{ steps.config.outputs.os_type }}${{ steps.config.outputs.build_type }}-${{ steps.config.outputs.version }}-${{ github.run_number }}"
+          name: "${{ github.event.inputs.os_type }}${{ github.event.inputs.build_type }}-Android${{ github.event.inputs.version }}-unpack"
+          tag: "${{ github.event.inputs.os_type }}${{ github.event.inputs.build_type }}-${{ github.event.inputs.version }}-${{ github.run_number }}"
           bodyFile: "${{ github.workspace }}/SGSI-build-tool/SGSI/build_info.txt"
           token: ${{ secrets.GITHUB_TOKEN }}
