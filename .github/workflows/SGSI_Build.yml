@@ -1,7 +1,8 @@
 name: SGSI_Build
 
 on:
-  workflow_dispatch:
+  watch:
+    types: [started]
 
 jobs:
   build:
@@ -20,7 +21,8 @@ jobs:
       - name: Check Configuration
         run: |
           function required () { if ! [[ "$1" ]]; then echo "$2 variable can't be null." && exit 1; fi }
-          required "${{ steps.config.outputs.rom_url }}" "ROM_URL config"
+          required "${{ steps.config.outputs.rom_url_1 }}" "ROM_URL_1 config"
+          required "${{ steps.config.outputs.rom_url_2 }}" "ROM_URL_2 config"
           required "${{ steps.config.outputs.build_type }}" "BUILD_TYPE config"
           required "${{ steps.config.outputs.os_type }}" "OS_TYPE config"
           required "${{ steps.config.outputs.zip_name }}" "ZIP_NAME config"
@@ -28,59 +30,54 @@ jobs:
           required "${{ steps.config.outputs.repack_name }}" "REPACK_NAME config"
 
       - name: Cleanup workspace
-        uses: rokibhasansagar/slimhub_actions@main
-           
+        run: |
+          docker rmi `docker images -q`
+          sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d
+          sudo -E apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox* google* dotnet* powershell openjdk* php*
+          sudo -E apt-get update
+          sudo -E apt-get -y autoremove --purge
+          sudo -E apt-get clean
+          df -h
+
       - name: Initializing Environment
         run: |
-            sudo apt-get install -y git wget git zip unzip curl axel
+          sudo apt-get install -y git wget git zip unzip curl axel
 
       - name: Cloning SGSI source code
         run: |
-             git clone --recurse-submodules https://github.com/xiaoxindada/SGSI-build-tool.git -b 12 $GITHUB_WORKSPACE/SGSI-build-tool
-           
-      - name: Download ROM
-        run: |
-            cd $GITHUB_WORKSPACE/SGSI-build-tool
-            mkdir ./tmp
-            wget -U "Mozilla/5.0" "${{ steps.config.outputs.rom_url }}" -O "$GITHUB_WORKSPACE/SGSI-build-tool/tmp/"${{ steps.config.outputs.zip_name }}"
-            echo "zip_file: $(ls "$GITHUB_WORKSPACE/SGSI-build-tool/tmp/")"
-            
+          git clone --recurse-submodules https://github.com/xiaoxindada/SGSI-build-tool.git -b 12 $GITHUB_WORKSPACE/SGSI-build-tool
+
       - name: Setup sGSI tools requirements
         run: |
-            sudo sed -i 's/USE_MIRROR_FOR_PIP\=true/USE_MIRROR_FOR_PIP\=false/' $GITHUB_WORKSPACE/SGSI-build-tool/setup.sh
-            sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/setup.sh
-            # sudo apt-get -y --purge remove "adoptopenjdk-11-hotspot"
-            java -version
-            
-      - name: Build AB Devices
-        if: "${{ steps.config.outputs.build_type == 'AB' }}"
-        run: |
-            sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/make.sh --AB "${{ steps.config.outputs.os_type }}" "${{ steps.config.outputs.zip_name }}" --fix-bug
+          sudo sed -i 's/USE_MIRROR_FOR_PIP\=true/USE_MIRROR_FOR_PIP\=false/' $GITHUB_WORKSPACE/SGSI-build-tool/setup.sh
+          sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/setup.sh
 
-      - name: Build Aonly Devices
-        if: "${{ steps.config.outputs.build_type == 'a-only' }}"
+      - name: Build SGSI from URL 1
         run: |
-            sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/make.sh --a-only "${{ steps.config.outputs.os_type }}" "${{ steps.config.outputs.zip_name }}" --fix-bug     
+          sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/url2SGSI.sh "${{ steps.config.outputs.rom_url_1 }}" "${{ steps.config.outputs.os_type }}" "${{ steps.config.outputs.build_type }}"
+
+      - name: Build SGSI from URL 2
+        run: |
+          sudo bash $GITHUB_WORKSPACE/SGSI-build-tool/url2SGSI.sh "${{ steps.config.outputs.rom_url_2 }}" "${{ steps.config.outputs.os_type }}" "${{ steps.config.outputs.build_type }}"
 
       - name: Repack Output File
-        run: |            
-             cd $GITHUB_WORKSPACE/SGSI-build-tool
-             pwd
-             mkdir -p upload
-             zip -r "${{ steps.config.outputs.repack_name }}" ./SGSI/*
-             if [[ $(du -sb ""${{ steps.config.outputs.repack_name }}"" | awk '{print $1}') -gt 2097152000 ]];then
-                 echo -e "split packaging..."
-                 tar -cpzf - "${{ steps.config.outputs.repack_name }}" | split -d -b 1024m - "upload/"${{ steps.config.outputs.repack_name }}"
-             else
-                 mv "${{ steps.config.outputs.repack_name }}" upload/"${{ steps.config.outputs.repack_name }}"
-             fi
-             ls "upload"
+        run: |
+          cd $GITHUB_WORKSPACE/SGSI-build-tool
+          mkdir -p upload
+          zip -r "${{ steps.config.outputs.repack_name }}" ./SGSI/*
+          if [[ $(du -sb "${{ steps.config.outputs.repack_name }}" | awk '{print $1}') -gt 2097152000 ]]; then
+            echo -e "split packaging..."
+            tar -cpzf - "${{ steps.config.outputs.repack_name }}" | split -d -b 1024m - "upload/${{ steps.config.outputs.repack_name }}"
+          else
+            mv "${{ steps.config.outputs.repack_name }}" "upload/${{ steps.config.outputs.repack_name }}"
+          fi
+          ls "upload"
 
-     - name: Upload SGSI to GH-Release
-       uses: ncipollo/release-action@v1.8.6
-       with:
-         artifacts: ${{ github.workspace }}/SGSI-build-tool/upload/*
-         name: "${{ steps.config.outputs.os_type }}"${{ steps.config.outputs.build_type }}"-Android"${{ steps.config.outputs.version }}"-unpack
-         tag: "${{ steps.config.outputs.os_type }}"${{ steps.config.outputs.build_type }}"-"${{ steps.config.outputs.version }}"-${{ github.run_number }}
-         bodyFile: "${{ github.workspace}}/SGSI-build-tool/SGSI/build_info.txt"
-         token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload SGSI to GH-Release
+        uses: ncipollo/release-action@v1.8.6
+        with:
+          artifacts: ${{ github.workspace }}/SGSI-build-tool/upload/*
+          name: "${{ steps.config.outputs.os_type }}${{ steps.config.outputs.build_type }}-Android${{ steps.config.outputs.version }}-unpack"
+          tag: "${{ steps.config.outputs.os_type }}${{ steps.config.outputs.build_type }}-${{ steps.config.outputs.version }}-${{ github.run_number }}"
+          bodyFile: "${{ github.workspace }}/SGSI-build-tool/SGSI/build_info.txt"
+          token: ${{ secrets.GITHUB_TOKEN }}
